@@ -64,6 +64,8 @@ WS_TEACHERS = "Teachers"
 WS_ENTRIES = "Teaching_Plan_Entries"
 
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+PERIODS_PER_DAY = {"Monday": 7, "Tuesday": 7, "Wednesday": 7, "Thursday": 7,
+                    "Friday": 6, "Saturday": 6}
 
 FONT_URDU = "fonts/Jameel_Noori_Nastaleeq_Regular.ttf"
 FONT_SINDHI = "fonts/MB-Lateefi-SKv2_0.ttf"
@@ -249,6 +251,82 @@ def make_pdf(rows, columns, title, subtitle=""):
     return bytes(pdf.output())
 
 
+def make_weekly_grid_pdf(rows, class_section: str, week_start: date) -> bytes:
+    """Builds the Weekly Plan in the official PSCC template shape: Days as
+    rows, Period_01..Period_07 as columns, each cell showing the Subject
+    and that period's Topic stacked. Periods beyond a day's actual count
+    (Period_07 on Fri/Sat) are shown dashed-out, matching the template."""
+    lookup = {(r["Day"], r["Period"]): r for r in rows}
+
+    pdf = FPDF(orientation="L", unit="mm", format="A4")
+    pdf.set_margins(8, 8, 8)
+    pdf.add_page()
+    pdf.add_font("Urdu", "", FONT_URDU)
+    pdf.add_font("Sindhi", "", FONT_SINDHI)
+    pdf.set_text_shaping(True)
+
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.cell(0, 9, "PAKISTAN STEEL CADET COLLEGE", align="C", ln=True)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, f"{class_section} Weekly Plan of {week_start.strftime('%d %b %Y')}",
+              align="C", ln=True)
+    pdf.ln(2)
+
+    left = 8
+    top_y = pdf.get_y()
+    day_col_w = 24
+    page_w = 297 - 16  # landscape width minus left+right margins
+    period_col_w = (page_w - day_col_w) / 7
+    header_h = 8
+    row_h = 24
+
+    # ---- header row ----
+    pdf.set_xy(left, top_y)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(day_col_w, header_h, "Days", border=1, align="C")
+    for p in range(1, 8):
+        pdf.cell(period_col_w, header_h, f"Period_{p:02d}", border=1, align="C")
+    pdf.ln(header_h)
+
+    # ---- one row per day ----
+    y = top_y + header_h
+    for day in DAY_ORDER:
+        pdf.set_xy(left, y)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(day_col_w, row_h, day, border=1, align="C")
+
+        n_periods = PERIODS_PER_DAY.get(day, 7)
+        x = left + day_col_w
+        for p in range(1, 8):
+            pdf.rect(x, y, period_col_w, row_h)
+            if p > n_periods:
+                pdf.set_xy(x, y + row_h / 2 - 3)
+                pdf.set_font("Helvetica", "", 9)
+                pdf.cell(period_col_w, 6, "-----------", align="C")
+            else:
+                slot = lookup.get((day, p), {})
+                subject = str(slot.get("Subject", ""))
+                topic = str(slot.get("Topic", ""))
+
+                pdf.set_xy(x + 1, y + 1)
+                pdf.set_font("Helvetica", "B", 8)
+                pdf.multi_cell(period_col_w - 2, 4, subject[:40], align="C")
+
+                script = detect_font_for(topic)
+                if script == "urdu":
+                    pdf.set_font("Urdu", "", 9)
+                elif script == "sindhi":
+                    pdf.set_font("Sindhi", "", 9)
+                else:
+                    pdf.set_font("Helvetica", "", 7)
+                pdf.set_xy(x + 1, y + 6)
+                pdf.multi_cell(period_col_w - 2, 3.5, topic[:150], align="C")
+            x += period_col_w
+        y += row_h
+
+    return bytes(pdf.output())
+
+
 # ============ 5. STREAMLIT APP ============
 st.set_page_config(page_title="PSCC Weekly Teaching Plan", layout="wide")
 st.title("PSCC Weekly Teaching Plan")
@@ -409,8 +487,7 @@ with tab3:
         st.info(f"{missing3} period(s) have no submitted plan for this week.")
 
     title3 = f"Weekly Plan - Class {class_no3}-{section3}"
-    pdf_bytes3 = make_pdf(merged_rows, ["Day", "Period", "Subject", "Teacher", "Topic"], title3,
-                            f"Week of {week_start3.strftime('%d %b %Y')}")
+    pdf_bytes3 = make_weekly_grid_pdf(merged_rows, f"{class_no3}-{section3}", week_start3)
     st.download_button("Download as PDF", data=pdf_bytes3,
                         file_name=f"{title3.replace(' ', '_')}_{week_str3}.pdf", mime="application/pdf",
                         key="t3_pdf")
