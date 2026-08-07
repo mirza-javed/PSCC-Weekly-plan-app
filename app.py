@@ -372,8 +372,13 @@ with tab1:
 with tab2:
     st.subheader("Week")
     today = date.today()
-    if "t2_pick_date" not in st.session_state:
-        st.session_state.t2_pick_date = today
+    # IMPORTANT: once a widget has a `key`, Streamlit reads its value from
+    # that key on every rerun and ignores `value=` after the first render.
+    # So the buttons below must write straight into "t2_date_input" itself
+    # (the date_input's own key) -- not a separate tracking variable -- or
+    # the widget will keep showing whatever it already had.
+    if "t2_date_input" not in st.session_state:
+        st.session_state["t2_date_input"] = today
 
     # Two buttons side by side (fine at half-width each, even on a phone),
     # then the date picker on its own full-width line below -- this stacks
@@ -381,15 +386,13 @@ with tab2:
     qc1, qc2 = st.columns(2)
     with qc1:
         if st.button("This week", use_container_width=True):
-            st.session_state.t2_pick_date = today
+            st.session_state["t2_date_input"] = today
     with qc2:
         if st.button("Next week", use_container_width=True):
-            st.session_state.t2_pick_date = today + timedelta(days=7)
-    pick_date = st.date_input("...or pick any date in the target week",
-                               value=st.session_state.t2_pick_date, key="t2_date_input")
-    st.session_state.t2_pick_date = pick_date
+            st.session_state["t2_date_input"] = today + timedelta(days=7)
+    pick_date = st.date_input("...or pick any date in the target week", key="t2_date_input")
 
-    week_start = monday_of(st.session_state.t2_pick_date)
+    week_start = monday_of(pick_date)
     week_end = week_start + timedelta(days=5)  # Saturday
     st.info(f"Planning for: **{week_start.strftime('%a %d %b %Y')} - {week_end.strftime('%a %d %b %Y')}**")
 
