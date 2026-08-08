@@ -267,36 +267,33 @@ def make_pdf(rows, columns, title, subtitle=""):
     return bytes(pdf.output())
 
 
-def make_weekly_grid_pdf(rows, class_section: str, week_start: date) -> bytes:
-    """Builds the Weekly Plan in the official PSCC template shape: Days as
-    rows, Period_01..Period_07 as columns, each cell showing the Subject
-    and that period's Topic stacked. Periods beyond a day's actual count
-    (Period_07 on Fri/Sat) are shown dashed-out, matching the template."""
-    lookup = {(r["Day"], r["Period"]): r for r in rows}
+ONE_INCH = 25.4  # mm
+TOP_MARGIN_075IN = 19.05  # mm
 
-    pdf = FPDF(orientation="L", unit="mm", format="A4")
-    pdf.set_margins(8, 8, 8)
+
+def _new_grid_page():
+    """Common page setup shared by all 3 grid-style PDFs: Legal, landscape,
+    1-inch left/right margins, 0.75-inch top margin."""
+    pdf = FPDF(orientation="L", unit="mm", format="Legal")
+    pdf.set_margins(ONE_INCH, TOP_MARGIN_075IN, ONE_INCH)
     pdf.add_page()
     pdf.add_font("Urdu", "", FONT_URDU)
     pdf.add_font("Sindhi", "", FONT_SINDHI)
     pdf.set_text_shaping(True)
+    return pdf, pdf.w - 2 * ONE_INCH  # pdf, usable page width
 
-    pdf.set_font("Helvetica", "B", 15)
-    pdf.cell(0, 9, "PAKISTAN STEEL CADET COLLEGE", align="C", ln=True)
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, f"{class_section} Weekly Plan of {week_start.strftime('%d %b %Y')}",
-              align="C", ln=True)
-    pdf.ln(2)
 
-    left = 8
-    top_y = pdf.get_y()
+def _render_day_period_grid(pdf, top_y, page_w, cell_lookup):
+    """Draws the Days x Period_01..07 grid used by all 3 templates.
+    cell_lookup(day, period) -> {"line1": ..., "line2": ...} or None for
+    an empty slot. Periods beyond that day's actual count (Period_07 on
+    Fri/Sat) are dashed-out automatically, matching the templates."""
+    left = ONE_INCH
     day_col_w = 24
-    page_w = 297 - 16  # landscape width minus left+right margins
     period_col_w = (page_w - day_col_w) / 7
     header_h = 8
     row_h = 24
 
-    # ---- header row ----
     pdf.set_xy(left, top_y)
     pdf.set_font("Helvetica", "B", 9)
     pdf.cell(day_col_w, header_h, "Days", border=1, align="C")
@@ -304,7 +301,6 @@ def make_weekly_grid_pdf(rows, class_section: str, week_start: date) -> bytes:
         pdf.cell(period_col_w, header_h, f"Period_{p:02d}", border=1, align="C")
     pdf.ln(header_h)
 
-    # ---- one row per day ----
     y = top_y + header_h
     for day in DAY_ORDER:
         pdf.set_xy(left, y)
@@ -320,27 +316,89 @@ def make_weekly_grid_pdf(rows, class_section: str, week_start: date) -> bytes:
                 pdf.set_font("Helvetica", "", 9)
                 pdf.cell(period_col_w, 6, "-----------", align="C")
             else:
-                slot = lookup.get((day, p), {})
-                subject = str(slot.get("Subject", ""))
-                topic = str(slot.get("Topic", ""))
+                cell = cell_lookup(day, p) or {}
+                line1 = str(cell.get("line1", ""))
+                line2 = str(cell.get("line2", ""))
 
                 pdf.set_xy(x + 1, y + 1)
                 pdf.set_font("Helvetica", "B", 8)
-                pdf.multi_cell(period_col_w - 2, 4, safe_latin(subject)[:40], align="C")
+                pdf.multi_cell(period_col_w - 2, 4, safe_latin(line1)[:40], align="C")
 
-                script = detect_font_for(topic)
+                script = detect_font_for(line2)
                 if script == "urdu":
                     pdf.set_font("Urdu", "", 9)
                 elif script == "sindhi":
                     pdf.set_font("Sindhi", "", 9)
                 else:
                     pdf.set_font("Helvetica", "", 7)
-                    topic = safe_latin(topic)
+                    line2 = safe_latin(line2)
                 pdf.set_xy(x + 1, y + 6)
-                pdf.multi_cell(period_col_w - 2, 3.5, topic[:150], align="C")
+                pdf.multi_cell(period_col_w - 2, 3.5, line2[:150], align="C")
             x += period_col_w
         y += row_h
 
+
+def make_weekly_grid_pdf(rows, class_section: str, week_start: date, week_end: date) -> bytes:
+    """Weekly Study Plan template: Class (left) / "Weekly Study Plan"
+    (center) / From-To dates (right) on one sub-heading line, then the
+    Days x Period grid with Subject + Topic per cell."""
+    lookup = {(r["Day"], r["Period"]): r for r in rows}
+    pdf, page_w = _new_grid_page()
+
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.cell(0, 9, "PAKISTAN STEEL CADET COLLEGE", align="C", ln=True)
+
+    pdf.set_font("Helvetica", "B", 11)
+    third = page_w / 3
+    pdf.cell(third, 8, f"Class: {class_section}", align="L")
+    pdf.cell(third, 8, "Weekly Study Plan", align="C")
+    pdf.cell(third, 8, f"From: {week_start.strftime('%d %b %Y')}   To: {week_end.strftime('%d %b %Y')}",
+              align="R", ln=True)
+    pdf.ln(2)
+
+    def cell_lookup(day, period):
+        return {"line1": lookup.get((day, period), {}).get("Subject", ""),
+                "line2": lookup.get((day, period), {}).get("Topic", "")}
+
+    _render_day_period_grid(pdf, pdf.get_y(), page_w, cell_lookup)
+    return bytes(pdf.output())
+
+
+def make_class_timetable_pdf(rows, class_section: str) -> bytes:
+    """Class Time Table template: each cell shows Subject + Teacher."""
+    lookup = {(r["Day"], r["Period"]): r for r in rows}
+    pdf, page_w = _new_grid_page()
+
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.cell(0, 9, "PAKISTAN STEEL CADET COLLEGE", align="C", ln=True)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, f"Class Time Table: {class_section}", align="C", ln=True)
+    pdf.ln(2)
+
+    def cell_lookup(day, period):
+        slot = lookup.get((day, period), {})
+        return {"line1": slot.get("Subject", ""), "line2": slot.get("Teacher", "")}
+
+    _render_day_period_grid(pdf, pdf.get_y(), page_w, cell_lookup)
+    return bytes(pdf.output())
+
+
+def make_teacher_timetable_pdf(rows, teacher_name: str) -> bytes:
+    """Teacher's Time Table template: each cell shows Class + Section."""
+    lookup = {(r["Day"], r["Period"]): r for r in rows}
+    pdf, page_w = _new_grid_page()
+
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.cell(0, 9, "PAKISTAN STEEL CADET COLLEGE", align="C", ln=True)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, f"Teacher's Time Table: {teacher_name}", align="C", ln=True)
+    pdf.ln(2)
+
+    def cell_lookup(day, period):
+        slot = lookup.get((day, period), {})
+        return {"line1": str(slot.get("Class", "")), "line2": str(slot.get("Section", ""))}
+
+    _render_day_period_grid(pdf, pdf.get_y(), page_w, cell_lookup)
     return bytes(pdf.output())
 
 
@@ -372,15 +430,16 @@ with tab1:
             section = st.selectbox("Section", sections, key="t1_section")
         view_df = timetable[(timetable["Class"] == class_no) & (timetable["Section"] == section)]
         title = f"Timetable - Class {class_no}-{section}"
+        pdf_bytes = make_class_timetable_pdf(view_df.to_dict("records"), f"{class_no}-{section}")
     else:
         teacher = st.selectbox("Teacher", sorted(timetable["Teacher"].dropna().unique()), key="t1_teacher")
-        view_df = timetable[timetable["Teacher"] == teacher]
+        view_df = timetable[timetable["Teacher"] == teacher].sort_values(["day_rank", "Period"])
         title = f"Timetable - {teacher}"
+        pdf_bytes = make_teacher_timetable_pdf(view_df.to_dict("records"), teacher)
 
     show_cols = ["Day", "Period", "Class_Section", "Subject", "Teacher"]
     st.dataframe(view_df[show_cols], use_container_width=True, hide_index=True)
 
-    pdf_bytes = make_pdf(view_df[show_cols].to_dict("records"), show_cols, title)
     st.download_button("Download as PDF", data=pdf_bytes,
                         file_name=f"{title.replace(' ', '_')}.pdf", mime="application/pdf",
                         key="t1_pdf")
@@ -488,6 +547,7 @@ with tab3:
         section3 = st.selectbox("Section", sections3, key="t3_section")
 
     week_start3 = monday_of(view_date)
+    week_end3 = week_start3 + timedelta(days=5)  # Saturday
     slots3 = timetable[(timetable["Class"] == class_no3) & (timetable["Section"] == section3)]
     entries_df3 = load_entries()
     week_str3 = week_start3.isoformat()
@@ -507,7 +567,7 @@ with tab3:
         st.info(f"{missing3} period(s) have no submitted plan for this week.")
 
     title3 = f"Weekly Plan - Class {class_no3}-{section3}"
-    pdf_bytes3 = make_weekly_grid_pdf(merged_rows, f"{class_no3}-{section3}", week_start3)
+    pdf_bytes3 = make_weekly_grid_pdf(merged_rows, f"{class_no3}-{section3}", week_start3, week_end3)
     st.download_button("Download as PDF", data=pdf_bytes3,
                         file_name=f"{title3.replace(' ', '_')}_{week_str3}.pdf", mime="application/pdf",
                         key="t3_pdf")
