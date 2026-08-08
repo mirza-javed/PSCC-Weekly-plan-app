@@ -165,6 +165,21 @@ def detect_font_for(text: str) -> str:
     return "latin"
 
 
+def safe_latin(text: str) -> str:
+    """Helvetica (the built-in font used for English text) only supports
+    Latin-1 characters. Teachers typing from a phone keyboard can easily
+    include an emoji, a "smart" curly quote, or another character outside
+    that range -- which would otherwise crash PDF generation entirely.
+    This swaps anything unsupported for a plain '?' instead of failing."""
+    if not isinstance(text, str):
+        return str(text)
+    try:
+        text.encode("latin-1")
+        return text
+    except UnicodeEncodeError:
+        return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
 # ============ 4. PDF BUILDER (shared by all 3 tabs) ============
 # Content-sized widths (mm) -- short columns stay narrow, Topic gets the rest.
 # This is what removes the wasted white space you saw.
@@ -243,6 +258,7 @@ def make_pdf(rows, columns, title, subtitle=""):
                     pdf.set_font("Sindhi", "", 10)
                 else:
                     pdf.set_font("Helvetica", "", 8)
+                    text = safe_latin(text)
                 max_chars = max(3, int(w / 1.7))
                 pdf.cell(w, ROW_HEIGHT, text[:max_chars], border=1)
             pdf.ln(ROW_HEIGHT)
@@ -310,7 +326,7 @@ def make_weekly_grid_pdf(rows, class_section: str, week_start: date) -> bytes:
 
                 pdf.set_xy(x + 1, y + 1)
                 pdf.set_font("Helvetica", "B", 8)
-                pdf.multi_cell(period_col_w - 2, 4, subject[:40], align="C")
+                pdf.multi_cell(period_col_w - 2, 4, safe_latin(subject)[:40], align="C")
 
                 script = detect_font_for(topic)
                 if script == "urdu":
@@ -319,6 +335,7 @@ def make_weekly_grid_pdf(rows, class_section: str, week_start: date) -> bytes:
                     pdf.set_font("Sindhi", "", 9)
                 else:
                     pdf.set_font("Helvetica", "", 7)
+                    topic = safe_latin(topic)
                 pdf.set_xy(x + 1, y + 6)
                 pdf.multi_cell(period_col_w - 2, 3.5, topic[:150], align="C")
             x += period_col_w
