@@ -51,6 +51,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
 import re
+import time
 import gspread
 from google.oauth2.service_account import Credentials
 from fpdf import FPDF
@@ -125,30 +126,67 @@ def load_entries() -> pd.DataFrame:
     return df
 
 
+def _call_with_retry(fn, *args, retries=3, **kwargs):
+    """Retries a Google Sheets API call a few times with a short pause if
+    it hits a rate-limit / transient error, instead of failing outright.
+    This is the single biggest cause of "it looked saved but wasn't" --
+    all teachers share one Google service account, so a busy moment
+    (many teachers saving around the same time) can trip Google's
+    per-minute write quota for a single request."""
+    last_error = None
+    for attempt in range(retries):
+        try:
+            return fn(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            last_error = e
+            time.sleep(2 * (attempt + 1))  # wait a bit longer each retry
+    raise last_error
+
+
 def upsert_entries(rows_to_save):
     """Writes a batch of entries: updates a row if its EntryID already
-    exists, otherwise appends a new row. One API round-trip for the read,
-    one for all updates, one for all appends -- kept efficient on purpose."""
+    exists, otherwise appends a new row.
+
+    Returns a dict: {"saved": [...EntryIDs that saved successfully...],
+                      "failed": [...EntryIDs that did not...]}
+    so the caller can tell the teacher exactly what went through, instead
+    of an all-or-nothing silent result. The update batch and the append
+    batch are two separate API calls -- if one fails after the other
+    already succeeded, this makes sure that partial success is still
+    reported accurately rather than assumed to be a total failure."""
     sh = get_spreadsheet()
     ws = sh.worksheet(WS_ENTRIES)
-    existing = ws.get_all_records()
+    existing = _call_with_retry(ws.get_all_records)
     header = ws.row_values(1)
     id_to_rownum = {rec["EntryID"]: i + 2 for i, rec in enumerate(existing)}  # +2: header + 1-index
 
-    updates = []
-    appends = []
+    updates, update_ids = [], []
+    appends, append_ids = [], []
     for row in rows_to_save:
         if row["EntryID"] in id_to_rownum:
             rownum = id_to_rownum[row["EntryID"]]
             values = [row.get(col, "") for col in header]
             updates.append({"range": f"A{rownum}:{chr(64+len(header))}{rownum}", "values": [values]})
+            update_ids.append(row["EntryID"])
         else:
             appends.append([row.get(col, "") for col in header])
+            append_ids.append(row["EntryID"])
 
+    saved, failed = [], []
     if updates:
-        ws.batch_update(updates)
+        try:
+            _call_with_retry(ws.batch_update, updates)
+            saved += update_ids
+        except gspread.exceptions.APIError:
+            failed += update_ids
     if appends:
-        ws.append_rows(appends)
+        try:
+            _call_with_retry(ws.append_rows, appends)
+            saved += append_ids
+        except gspread.exceptions.APIError:
+            failed += append_ids
+
+    return {"saved": saved, "failed": failed}
 
 
 # ============ 3. HELPERS ============
@@ -522,8 +560,15 @@ with tab2:
         if editable:
             if st.button("Save week's plan", type="primary", use_container_width=True):
                 with st.spinner("Saving your plan — please wait, don't tap Save again..."):
-                    upsert_entries(new_rows)
-                st.session_state["t2_just_saved"] = True
+                    result = upsert_entries(new_rows)
+                if result["failed"]:
+                    st.session_state["t2_save_result"] = (
+                        f"Saved {len(result['saved'])} of {len(new_rows)} periods. "
+                        f"{len(result['failed'])} didn't go through (likely a busy moment on the server) "
+                        f"— please try Save again to submit just the rest."
+                    )
+                else:
+                    st.session_state["t2_save_result"] = "success"
                 st.rerun()
 
         pdf_rows = []
@@ -541,9 +586,12 @@ with tab2:
 
         # Shown here (below the buttons) rather than at the top of the entry
         # list, since that's what's actually in view after scrolling down to click Save.
-        if st.session_state.get("t2_just_saved"):
+        save_result = st.session_state.get("t2_save_result")
+        if save_result == "success":
             st.success("Weekly plan saved successfully.")
-            st.session_state["t2_just_saved"] = False
+        elif save_result:
+            st.warning(save_result)
+        st.session_state["t2_save_result"] = None
 
 # ---------------- TAB 3: WEEKLY PLAN VIEW (admin) ----------------
 with tab3:
