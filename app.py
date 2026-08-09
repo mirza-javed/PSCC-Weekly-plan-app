@@ -113,7 +113,16 @@ def load_entries() -> pd.DataFrame:
     if not records:
         return pd.DataFrame(columns=["EntryID", "TimetableRowID", "WeekStartDate",
                                       "Topic", "SubmittedBy", "LastUpdated"])
-    return pd.DataFrame(records)
+    df = pd.DataFrame(records)
+    # Safety net: if the same EntryID ever ends up on more than one row
+    # (e.g. a save submitted twice in a row on a slow connection before
+    # the sheet had a chance to update), always keep the most recently
+    # updated one -- this must match what upsert_entries() below treats
+    # as canonical, or a save can look successful yet the box still
+    # shows old/blank data the next time it's opened.
+    if "LastUpdated" in df.columns and df["EntryID"].duplicated().any():
+        df = df.sort_values("LastUpdated").drop_duplicates(subset="EntryID", keep="last")
+    return df
 
 
 def upsert_entries(rows_to_save):
@@ -512,7 +521,8 @@ with tab2:
 
         if editable:
             if st.button("Save week's plan", type="primary", use_container_width=True):
-                upsert_entries(new_rows)
+                with st.spinner("Saving your plan — please wait, don't tap Save again..."):
+                    upsert_entries(new_rows)
                 st.session_state["t2_just_saved"] = True
                 st.rerun()
 
