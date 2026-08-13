@@ -47,6 +47,7 @@ read-only setup we used for the earlier dashboard):
 ------------------------------------------------------------------------------
 """
 
+import os
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime, timedelta
@@ -469,7 +470,12 @@ def make_teacher_timetable_pdf(rows, teacher_name: str) -> bytes:
 
 # ============ 5. STREAMLIT APP ============
 st.set_page_config(page_title="PSCC Weekly Teaching Plan", layout="wide")
-st.title("PSCC Weekly Teaching Plan")
+_logo_path = os.path.join(os.path.dirname(__file__), "static", "pscc-logo.jpg")
+_logo_col, _title_col = st.columns([1, 5], vertical_alignment="center")
+with _logo_col:
+    st.image(_logo_path, width=90)
+with _title_col:
+    st.title("PSCC Weekly Teaching Plan")
 
 try:
     timetable_raw, subjects_df, teachers_df = load_static_sheets()
