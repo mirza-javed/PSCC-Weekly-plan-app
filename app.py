@@ -73,8 +73,11 @@ FONT_SINDHI = "fonts/MB-Lateefi-SKv2_0.ttf"
 
 # Characters that only appear in Sindhi, not standard Urdu -- used to tell the
 # two apart automatically. Not 100% perfect (some fonts/typists vary), but
-# good enough to pick the right font for the common case.
-SINDHI_ONLY_CHARS = set("ٻڀٺٽٿڃڄڇڏڊڍڦڱڳ")
+# good enough to pick the right font for the common case. (ڙڪڻڌڙ inserted
+# because words like پڙهڻ/ايڪو/سنڌي are Sindhi but contain no letter from
+# the original list, so they were being rendered with the Urdu font, which
+# garbles them.)
+SINDHI_ONLY_CHARS = set("ٻڀٺٽٿڃڄڇڏڊڍڦڱڳڙڪڻڌ")
 ARABIC_SCRIPT_RANGE = re.compile(r"[\u0600-\u06FF]")
 
 
@@ -201,15 +204,26 @@ def prepare_timetable(timetable: pd.DataFrame) -> pd.DataFrame:
     return tt
 
 
-def detect_font_for(text: str) -> str:
-    """Returns 'sindhi', 'urdu', or 'latin' depending on the script used."""
+def detect_font_for(text: str, subject: str = "") -> str:
+    """Returns 'sindhi', 'urdu', or 'latin' depending on the script used.
+
+    `subject` is the row's Subject value when known ("Sindhi", "Urdu", ...).
+    It acts as the strongest hint because a topic under the Sindhi subject
+    can be made up entirely of letters that are also valid Urdu (e.g.
+    "قومي ايڪو") -- letter-detection alone would misclassify it as Urdu and
+    render it with the Urdu font, which garbles Sindhi words."""
     if not isinstance(text, str) or not text.strip():
         return "latin"
     if any(ch in SINDHI_ONLY_CHARS for ch in text):
         return "sindhi"
-    if ARABIC_SCRIPT_RANGE.search(text):
+    if not ARABIC_SCRIPT_RANGE.search(text):
+        return "latin"
+    subject = (subject or "").strip().lower()
+    if subject == "sindhi":
+        return "sindhi"
+    if subject == "urdu":
         return "urdu"
-    return "latin"
+    return "urdu"
 
 
 def safe_latin(text: str) -> str:
@@ -295,10 +309,11 @@ def make_pdf(rows, columns, title, subtitle=""):
         pdf.set_x(x0)
 
         for row in block_rows:
+            subject = str(row.get("Subject", ""))
             for col in columns:
                 w = col_widths[col]
                 text = str(row.get(col, ""))
-                script = detect_font_for(text)
+                script = detect_font_for(text, subject)
                 if script == "urdu":
                     pdf.set_font("Urdu", "", 10)
                 elif script == "sindhi":
@@ -330,7 +345,7 @@ def _new_grid_page():
     return pdf, pdf.w - 2 * ONE_INCH  # pdf, usable page width
 
 
-def _render_day_period_grid(pdf, top_y, page_w, cell_lookup):
+def _render_day_period_grid(pdf, top_y, page_w, cell_lookup, urdu_font_size=9, sindhi_font_size=9):
     """Draws the Days x Period_01..07 grid used by all 3 templates.
     cell_lookup(day, period) -> {"line1": ..., "line2": ...} or None for
     an empty slot. Periods beyond that day's actual count (Period_07 on
@@ -366,16 +381,17 @@ def _render_day_period_grid(pdf, top_y, page_w, cell_lookup):
                 cell = cell_lookup(day, p) or {}
                 line1 = str(cell.get("line1", ""))
                 line2 = str(cell.get("line2", ""))
+                subject = str(cell.get("subject", ""))
 
                 pdf.set_xy(x + 1, y + 1)
                 pdf.set_font("Helvetica", "B", 8)
                 pdf.multi_cell(period_col_w - 2, 4, safe_latin(line1)[:40], align="C")
 
-                script = detect_font_for(line2)
+                script = detect_font_for(line2, subject)
                 if script == "urdu":
-                    pdf.set_font("Urdu", "", 9)
+                    pdf.set_font("Urdu", "", urdu_font_size)
                 elif script == "sindhi":
-                    pdf.set_font("Sindhi", "", 9)
+                    pdf.set_font("Sindhi", "", sindhi_font_size)
                 else:
                     pdf.set_font("Helvetica", "", 7)
                     line2 = safe_latin(line2)
@@ -404,10 +420,11 @@ def make_weekly_grid_pdf(rows, class_section: str, week_start: date, week_end: d
     pdf.ln(2)
 
     def cell_lookup(day, period):
-        return {"line1": lookup.get((day, period), {}).get("Subject", ""),
-                "line2": lookup.get((day, period), {}).get("Topic", "")}
+        slot = lookup.get((day, period), {})
+        return {"line1": slot.get("Subject", ""), "line2": slot.get("Topic", ""),
+                "subject": slot.get("Subject", "")}
 
-    _render_day_period_grid(pdf, pdf.get_y(), page_w, cell_lookup)
+    _render_day_period_grid(pdf, pdf.get_y(), page_w, cell_lookup, urdu_font_size=12, sindhi_font_size=10)
     return bytes(pdf.output())
 
 
@@ -424,7 +441,8 @@ def make_class_timetable_pdf(rows, class_section: str) -> bytes:
 
     def cell_lookup(day, period):
         slot = lookup.get((day, period), {})
-        return {"line1": slot.get("Subject", ""), "line2": slot.get("Teacher", "")}
+        return {"line1": slot.get("Subject", ""), "line2": slot.get("Teacher", ""),
+                "subject": slot.get("Subject", "")}
 
     _render_day_period_grid(pdf, pdf.get_y(), page_w, cell_lookup)
     return bytes(pdf.output())
