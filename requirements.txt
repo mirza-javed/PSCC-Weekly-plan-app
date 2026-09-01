@@ -1,6 +1,10 @@
-streamlit
-pandas
-fpdf2
-gspread
-google-auth
-uharfbuzz
+fastapi>=0.115.0
+pydantic>=2.10.0
+uvicorn>=0.30.0
+pandas>=2.2.0
+fpdf2>=2.8.0
+uharfbuzz>=0.40.0
+gspread>=6.1.0
+google-auth>=2.30.0
+toml>=0.10.2
+streamlit>=1.36.0

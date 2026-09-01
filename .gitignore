@@ -1,14 +1,23 @@
-# Ignore Streamlit secrets
+# Ignore secrets and env
 .streamlit/secrets.toml
+.env
+.env.*
+service_account.json
 
 # Ignore virtual environments
+venv/
 .venv/
 env/
-.env
 
-# Ignore Python cache
+# Node & Build artifacts
+node_modules/
+dist/
+.vercel/
+
+# Python cache
 __pycache__/
 *.pyc
 
-# Ignore Docs directory
-docs/
+# OS files
+.DS_Store
+Thumbs.db
