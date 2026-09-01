@@ -4,7 +4,13 @@ from pathlib import Path
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-FONTS_DIR = BASE_DIR / "fonts"
+API_DIR = Path(__file__).resolve().parent
+
+if (API_DIR / "fonts").exists():
+    FONTS_DIR = API_DIR / "fonts"
+else:
+    FONTS_DIR = BASE_DIR / "fonts"
+
 STATIC_DIR = BASE_DIR / "static"
 
 FONT_URDU = str(FONTS_DIR / "Jameel_Noori_Nastaleeq_Regular.ttf")

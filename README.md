@@ -1,115 +1,190 @@
-# PSCC Weekly Teaching Plan
+# Pakistan Steel Cadet College (PSCC) — Weekly Teaching Plan & Timetable System
 
-A Streamlit app for Pakistan Steel Cadet College (PSCC) that connects the class timetable
-to a weekly teaching plan — teachers enter their plan directly against their own periods,
-and admins can view any class/section's merged timetable + plan, filterable by week, and
-download any view as a PDF.
+A modern, mobile-first, bilingual academic planning and scheduling web application for **Pakistan Steel Cadet College**.
 
-## Features
+The system links the college's 560 master timetable slots across 14 class-sections (Classes 8–12) to dynamic weekly teacher lesson submissions, administrative oversight dashboards, and publication-grade bilingual PDF reports (English, Urdu, and Sindhi).
 
-- **Timetable View** — browse the master schedule by Class & Section, or by Teacher.
-- **Data Entry** — a teacher selects their name and fills in that week's plan against their
-  own periods only (across all classes/sections they teach). Supports planning ahead for
-  next week. Locks to read-only once a week has started.
-- **Weekly Plan View** — admin filters by date, class, and section to see the full week's
-  timetable merged with submitted topics.
-- **PDF export** on all three tabs, with the college name as a header.
-- **Urdu / Sindhi support** — entries in either language are auto-detected and rendered in
-  the correct Nastaliq font in the PDF.
+---
 
-## Project files
+## 🌟 Key Features
+
+* **⚡ Ultra-Lightweight Frontend (React + Vite):**
+  * Tiny bundle footprint (~71 KB gzipped) optimized for fast loading on 3G/4G mobile networks.
+  * Mobile-first ergonomic layout with collapsible Day Accordions (Monday to Saturday) and auto-expansion for the current day.
+  * Bottom Sticky Action Bar with live progress tracking and zero content occlusion.
+
+* **🔤 True Bilingual Typography (Separate Urdu & Sindhi Engines):**
+  * **Sindhi:** Authentic **MB Lateefi** Naskh typography (`public/fonts/MB-Lateefi-SKv2_0.ttf`) for proper native Sindhi rendering.
+  * **Urdu:** **Jameel Noori Nastaleeq** (`public/fonts/Jameel_Noori_Nastaleeq_Regular.ttf`) for Nastaliq calligraphy.
+  * Script-aware RTL textareas with PDF-safe character limit indicators and native localized placeholders.
+
+* **📅 Master Timetable Browser:**
+  * View schedules by **Class & Section** or by **Teacher**.
+  * Strict chronological ordering (Monday → Saturday, Periods 1 → 7) with day grouping banners and "Today" highlighting.
+  * Live client-side instant search across subjects, teachers, and days.
+
+* **📝 Teacher Data Entry:**
+  * Teachers enter weekly lesson plans against their own scheduled periods across all classes.
+  * **Offline Draft Resilience:** Auto-saves uncommitted drafts to `localStorage` so inputs are never lost due to connection drops.
+  * **"Copy Previous Week"** time-saving shortcut for recurring syllabi.
+  * Automatic edit-lock after the week starts (Monday midnight).
+
+* **📊 Admin Weekly Matrix:**
+  * Real-time audit of submitted vs. missing period plans with single-click "Show missing periods only" filtering.
+
+* **📄 Publication-Quality Bilingual PDF Generator:**
+  * Powered by `fpdf2` and `uharfbuzz` for HarfBuzz vector text-shaping (proper Nastaliq and Sindhi letter joining).
+  * In-app instant PDF preview modal before downloading.
+
+---
+
+## 🏗️ Architecture & Project Structure
 
 ```
-.
-├── app.py              # the full app
-├── requirements.txt    # Python dependencies
-├── fonts/
-│   ├── Jameel_Noori_Nastaleeq_Regular.ttf
-│   └── MB-Lateefi-SKv2_0.ttf
-├── README.md
-└── PROJECT_SUMMARY.md  # how this project was designed, from scratch
+Time_Table_Weekly_planner/
+├── api/                         # Python Serverless Backend (FastAPI)
+│   ├── config.py                # App configuration & font path resolvers
+│   ├── index.py                 # FastAPI endpoints & PDF routes
+│   ├── pdf_service.py           # Bilingual PDF generation & HarfBuzz shaping engine
+│   ├── sheets_service.py        # Google Sheets client & TTL memory cache
+│   └── fonts/                   # Serverless lambda font bundle
+├── src/                         # Modern React SPA Frontend
+│   ├── components/              # UI Components
+│   │   ├── DataEntryView.jsx    # Teacher weekly entry view & accordions
+│   │   ├── DayAccordion.jsx     # Collapsible day container
+│   │   ├── Header.jsx           # College brand header
+│   │   ├── PdfModal.jsx         # In-app PDF viewer modal
+│   │   ├── PeriodInput.jsx      # Script-aware bilingual input
+│   │   ├── StickyActionBar.jsx  # Floating progress & save bar
+│   │   ├── TabNavigation.jsx    # Primary tab switcher
+│   │   ├── TimetableView.jsx    # Master schedule table & search
+│   │   ├── Toast.jsx            # Notification toast feedback
+│   │   ├── WeekStepper.jsx      # Week picker & Monday stepper
+│   │   └── WeeklyPlanAdminView.jsx # Admin matrix & missing tracker
+│   ├── utils/
+│   │   ├── dateHelpers.js       # Monday calculation & timezone helpers
+│   │   └── scriptDetector.js    # Urdu/Sindhi/Latin character classifier
+│   ├── App.jsx                  # Main application orchestrator
+│   ├── index.css                # Semantic design tokens & typography
+│   └── main.jsx                 # React DOM mount point
+├── public/                      # Static assets served at root
+│   ├── fonts/                   # Web fonts (MB-Lateefi & Jameel Noori)
+│   └── pscc-logo.jpg            # College crest logo
+├── fonts/                       # Master TrueType font files
+├── docs/                        # Specifications & documentation
+│   ├── DEPLOYMENT_GUIDE.md      # Vercel & local deployment guide
+│   └── improvements_03_ui_ux_pro_max.md # Comprehensive UI/UX specification
+├── .python-version              # Python 3.12 runtime pin for Vercel
+├── dev_server.py                # Local development FastAPI runner
+├── index.html                   # HTML5 template & font preloads
+├── package.json                 # Frontend dependencies (React 18, Vite, Lucide)
+├── requirements.txt             # Serverless Python dependencies
+├── vercel.json                  # Vercel serverless routing configuration
+└── vite.config.js               # Vite build configuration & API proxy
 ```
 
-## Google Sheets setup
+---
 
-Create **one** Google Sheets file with these 4 tabs:
+## 📊 Google Sheets Data Model
 
-**`Timetable`**
-| RowID | Day | Period | Class | Section | Class_Section | Subject | Teacher |
-|---|---|---|---|---|---|---|---|
+The app connects to **one** Google Spreadsheet containing 4 tabs:
 
-**`Subjects`**
-| Subject |
-|---|
+1. **`Timetable`** — Master schedule (560 rows):
+   ```
+   RowID | Day | Period | Class | Section | Class_Section | Subject | Teacher
+   ```
+2. **`Subjects`** — Reference list feeding subject validation:
+   ```
+   Subject
+   ```
+3. **`Teachers`** — Reference list feeding teacher validation:
+   ```
+   Teacher
+   ```
+4. **`Teaching_Plan_Entries`** — Stores submitted weekly plans:
+   ```
+   EntryID | TimetableRowID | WeekStartDate | Topic | SubmittedBy | LastUpdated
+   ```
 
-**`Teachers`**
-| Teacher |
-|---|
+> [!IMPORTANT]
+> `EntryID` follows the pattern `<TimetableRowID>_<WeekStartDate>` (e.g. `Monday-1-8-A_2026-08-10`), enabling efficient batch upserts.
 
-**`Teaching_Plan_Entries`** (starts empty — just add the header row)
-| EntryID | TimetableRowID | WeekStartDate | Topic | SubmittedBy | LastUpdated |
-|---|---|---|---|---|---|
+---
 
-Tab names and column headers must match **exactly** (case-sensitive) — the app looks them
-up by name.
+## 💻 Local Development Setup
 
-## One-time setup: Google service account
+### Prerequisites
+* **Python 3.10+** installed
+* **Node.js 18+** installed
 
-This app **writes** data (the Data Entry tab), so it needs more than read-only access.
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create/select a project.
-2. **APIs & Services → Library** → enable **Google Sheets API** and **Google Drive API**.
-3. **APIs & Services → Credentials → Create Credentials → Service Account**.
-4. Open the service account → **Keys → Add Key → JSON** → download the file.
-5. Open that JSON file and copy the `client_email` value.
-6. Open your Google Sheet → **Share** → paste that email in → give it **Editor** access.
-
-## Running locally
-
-```bash
-python -m venv venv
-# Windows:
+### Step 1: Install Dependencies
+```powershell
+# 1. Activate Python virtual environment and install backend packages
 venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
-
 pip install -r requirements.txt
+
+# 2. Install frontend dependencies
+npm install
 ```
 
-Create `.streamlit/secrets.toml` in the project folder with your service account details:
-
+### Step 2: Configure Credentials
+Create `.streamlit/secrets.toml` with your Google Cloud Service Account JSON credentials:
 ```toml
 [gcp_service_account]
 type = "service_account"
-project_id = "..."
+project_id = "your-project-id"
 private_key_id = "..."
 private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-client_email = "...@....iam.gserviceaccount.com"
+client_email = "your-service-account@project.iam.gserviceaccount.com"
 client_id = "..."
 token_uri = "https://oauth2.googleapis.com/token"
 ```
 
-Fill in `SPREADSHEET_ID` near the top of `app.py` (the long ID in your sheet's URL, between
-`/d/` and `/edit`), then run:
+### Step 3: Run Development Servers
+Open two terminal windows:
 
-```bash
-streamlit run app.py
+* **Terminal 1 (Backend API):**
+  ```powershell
+  venv\Scripts\activate
+  python dev_server.py
+  # API server runs on http://127.0.0.1:8000
+  ```
+
+* **Terminal 2 (Frontend SPA):**
+  ```powershell
+  npm run dev
+  # React app opens on http://localhost:5173
+  ```
+
+---
+
+## ☁️ Deploying to Vercel (100% Free)
+
+This repository is configured for free All-in-One deployment on **Vercel** (React Frontend + Python Serverless API).
+
+### 1. Push to GitHub
+```powershell
+git add .
+git commit -m "Deploy PSCC Weekly Teaching Plan v2.0"
+git push origin main
 ```
 
-The app opens at `http://localhost:8501`.
+### 2. Import into Vercel
+1. Log in to **[vercel.com](https://vercel.com)** with your GitHub account.
+2. Click **"Add New..."** → **"Project"** and select your repository.
+3. Build Settings will be detected automatically (`Vite` preset, output directory `dist`).
 
-## Deploying to Streamlit Cloud
+### 3. Add Environment Variables
+Under **Environment Variables**, add:
+* **`SPREADSHEET_ID`**: `1x5wykhZlN2-pFqrreCFvQmDZikZkV8_1fr5igQ-6GCk`
+* **`GCP_SERVICE_ACCOUNT`**: Paste the full JSON content of your Google Service Account key.
 
-1. Push this folder to a GitHub repo — **excluding** `venv/` and `.streamlit/secrets.toml`
-   (add both to a `.gitignore` file).
-2. [share.streamlit.io](https://share.streamlit.io) → New app → point it at the repo.
-3. In the app's **Settings → Secrets**, paste the same `[gcp_service_account]` block used
-   locally.
-4. Deploy.
+### 4. Click Deploy
+Vercel will build the frontend, package the `/api` serverless backend, and assign a free HTTPS URL (`*.vercel.app`).
 
-## Known limitation
+---
 
-Nastaliq is a visually complex script, and rendering it correctly in a PDF library is a
-known hard problem. This app uses fpdf2's built-in text-shaping engine (`uharfbuzz`) for
-proper Urdu/Sindhi letter-joining — treat the first generated PDF as a test, and report
-back if the shaping doesn't look right so it can be tuned further.
+## 📄 License & Attribution
+
+Designed and developed for **Pakistan Steel Cadet College (PSCC)**.
+Supported by **Antigravity AI**.
