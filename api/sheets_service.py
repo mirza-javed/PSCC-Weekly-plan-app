@@ -1,5 +1,4 @@
 import time
-import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from .config import (
@@ -53,14 +52,17 @@ def _call_with_retry(fn, *args, retries=3, **kwargs):
             time.sleep(2 * (attempt + 1))
     raise last_error
 
-def prepare_timetable(timetable_df: pd.DataFrame) -> pd.DataFrame:
-    tt = timetable_df.copy()
-    if "Day" in tt.columns:
-        tt["day_rank"] = tt["Day"].map(lambda d: DAY_ORDER.index(d) if d in DAY_ORDER else 99)
-        sort_cols = [c for c in ["Class_Section", "day_rank", "Period"] if c in tt.columns]
-        if sort_cols:
-            tt = tt.sort_values(sort_cols).reset_index(drop=True)
-    return tt
+def prepare_timetable(records: list) -> list:
+    def sort_key(r):
+        cs = str(r.get("Class_Section", ""))
+        day = str(r.get("Day", ""))
+        day_rank = DAY_ORDER.index(day) if day in DAY_ORDER else 99
+        try:
+            p = int(r.get("Period", 0))
+        except Exception:
+            p = 0
+        return (cs, day_rank, p)
+    return sorted(records, key=sort_key)
 
 def load_static_data(force_refresh=False):
     global _static_cache, _static_cache_time
@@ -73,32 +75,54 @@ def load_static_data(force_refresh=False):
     subjects_ws = sh.worksheet(WS_SUBJECTS)
     teachers_ws = sh.worksheet(WS_TEACHERS)
 
-    timetable_raw = pd.DataFrame(timetable_ws.get_all_records())
-    subjects_df = pd.DataFrame(subjects_ws.get_all_records())
-    teachers_df = pd.DataFrame(teachers_ws.get_all_records())
+    timetable_raw = _call_with_retry(timetable_ws.get_all_records)
+    subjects_raw = _call_with_retry(subjects_ws.get_all_records)
+    teachers_raw = _call_with_retry(teachers_ws.get_all_records)
 
     timetable = prepare_timetable(timetable_raw)
 
+    subjects = sorted(list(set(str(r.get("Subject")).strip() for r in subjects_raw if r.get("Subject"))))
+    teachers = sorted(list(set(str(r.get("Teacher")).strip() for r in teachers_raw if r.get("Teacher"))))
+
+    classes_set = set()
+    for r in timetable:
+        c = r.get("Class")
+        if c is not None and str(c).strip():
+            classes_set.add(c)
+    classes = sorted(list(classes_set), key=lambda x: str(x))
+
+    cs_set = set()
+    for r in timetable:
+        cs = r.get("Class_Section")
+        if cs is not None and str(cs).strip():
+            cs_set.add(str(cs).strip())
+    class_sections = sorted(list(cs_set))
+
     _static_cache = {
-        "timetable": timetable.to_dict("records"),
-        "subjects": subjects_df["Subject"].dropna().tolist() if "Subject" in subjects_df.columns else [],
-        "teachers": sorted(teachers_df["Teacher"].dropna().unique().tolist()) if "Teacher" in teachers_df.columns else [],
-        "classes": sorted(timetable["Class"].dropna().unique().tolist()) if "Class" in timetable.columns else [],
-        "class_sections": sorted(timetable["Class_Section"].dropna().unique().tolist()) if "Class_Section" in timetable.columns else []
+        "timetable": timetable,
+        "subjects": subjects,
+        "teachers": teachers,
+        "classes": classes,
+        "class_sections": class_sections
     }
     _static_cache_time = now
     return _static_cache
 
-def load_entries() -> pd.DataFrame:
+def load_entries() -> list:
     sh = get_spreadsheet()
     ws = sh.worksheet(WS_ENTRIES)
     records = _call_with_retry(ws.get_all_records)
     if not records:
-        return pd.DataFrame(columns=["EntryID", "TimetableRowID", "WeekStartDate", "Topic", "SubmittedBy", "LastUpdated"])
-    df = pd.DataFrame(records)
-    if "LastUpdated" in df.columns and "EntryID" in df.columns and df["EntryID"].duplicated().any():
-        df = df.sort_values("LastUpdated").drop_duplicates(subset="EntryID", keep="last")
-    return df
+        return []
+
+    # Deduplicate by EntryID keeping the latest LastUpdated entry
+    entries_map = {}
+    for r in records:
+        eid = r.get("EntryID")
+        if eid:
+            if eid not in entries_map or str(r.get("LastUpdated", "")) >= str(entries_map[eid].get("LastUpdated", "")):
+                entries_map[eid] = r
+    return list(entries_map.values())
 
 def upsert_entries(rows_to_save):
     sh = get_spreadsheet()
@@ -108,7 +132,7 @@ def upsert_entries(rows_to_save):
     if not header:
         header = ["EntryID", "TimetableRowID", "WeekStartDate", "Topic", "SubmittedBy", "LastUpdated"]
 
-    id_to_rownum = {rec["EntryID"]: i + 2 for i, rec in enumerate(existing)}
+    id_to_rownum = {rec.get("EntryID"): i + 2 for i, rec in enumerate(existing) if rec.get("EntryID")}
 
     updates, update_ids = [], []
     appends, append_ids = [], []

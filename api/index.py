@@ -54,19 +54,11 @@ def get_timetable(refresh: bool = False):
 @app.get("/api/plans")
 def get_plans(week_start: str = Query(..., description="ISO Monday date, e.g. 2026-08-10")):
     try:
-        entries_df = load_entries()
-        if entries_df.empty:
-            return {"week_start": week_start, "entries": []}
-        
-        # Filter entries matching this week
-        if "WeekStartDate" in entries_df.columns:
-            week_entries = entries_df[entries_df["WeekStartDate"] == week_start]
-        else:
-            week_entries = entries_df
-
+        entries = load_entries()
+        week_entries = [e for e in entries if str(e.get("WeekStartDate")) == week_start]
         return {
             "week_start": week_start,
-            "entries": week_entries.to_dict("records")
+            "entries": week_entries
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -138,15 +130,12 @@ def export_weekly_plan_pdf(
         if not matched_slots:
             raise HTTPException(status_code=404, detail="No slots found for class section")
         
-        entries_df = load_entries()
+        entries = load_entries()
+        entries_map = {e.get("EntryID"): e.get("Topic", "") for e in entries if e.get("EntryID")}
         merged_rows = []
         for slot in matched_slots:
             entry_id = f"{slot['RowID']}_{week_start}"
-            topic = ""
-            if not entries_df.empty and "EntryID" in entries_df.columns:
-                m = entries_df[entries_df["EntryID"] == entry_id]
-                if not m.empty:
-                    topic = str(m.iloc[0].get("Topic", ""))
+            topic = entries_map.get(entry_id, "")
             merged_rows.append({
                 "Day": slot.get("Day"),
                 "Period": slot.get("Period"),
@@ -199,15 +188,12 @@ def export_teacher_plan_pdf(
         
         matched_slots = sorted(matched_slots, key=sort_key)
         
-        entries_df = load_entries()
+        entries = load_entries()
+        entries_map = {e.get("EntryID"): e.get("Topic", "") for e in entries if e.get("EntryID")}
         pdf_rows = []
         for slot in matched_slots:
             entry_id = f"{slot['RowID']}_{week_start}"
-            topic = ""
-            if not entries_df.empty and "EntryID" in entries_df.columns:
-                m = entries_df[entries_df["EntryID"] == entry_id]
-                if not m.empty:
-                    topic = str(m.iloc[0].get("Topic", ""))
+            topic = entries_map.get(entry_id, "")
             pdf_rows.append({
                 "Day": slot.get("Day"),
                 "Period": slot.get("Period"),
