@@ -47,7 +47,12 @@ export function DataEntryView({
     });
   }, [timetable, selectedTeacher]);
 
-  // Sync incoming plans from server
+  // Clear drafts when user switches week or teacher
+  useEffect(() => {
+    setDraftTopics({});
+  }, [selectedWeek, selectedTeacher]);
+
+  // Sync incoming plans from server without clearing unsaved drafts
   useEffect(() => {
     const loaded = {};
     const saved = new Set();
@@ -59,10 +64,20 @@ export function DataEntryView({
         }
       }
     });
-    setPersistedTopics(loaded);
+    setPersistedTopics((prev) => ({ ...prev, ...loaded }));
     setSavedRowIds(saved);
-    setDraftTopics({}); // Clear drafts on fresh week load
-  }, [plans, selectedWeek]);
+
+    // Only remove drafts that have been confirmed saved on the server
+    setDraftTopics((prevDrafts) => {
+      const remaining = {};
+      Object.entries(prevDrafts).forEach(([rowId, draftVal]) => {
+        if (loaded[rowId] !== draftVal) {
+          remaining[rowId] = draftVal;
+        }
+      });
+      return remaining;
+    });
+  }, [plans]);
 
   // Merge persisted topics + local unsaved drafts
   const activeTopics = useMemo(() => {
@@ -101,11 +116,11 @@ export function DataEntryView({
     return topic.length > 0;
   }).length;
 
-  // Save All handler
+  // Save All handler (saves all days' plans at once)
   const handleSaveAll = () => {
     const rowsToSave = teacherSlots.map((slot) => {
       const entryId = `${slot.RowID}_${selectedWeek}`;
-      const topic = activeTopics[slot.RowID] || '';
+      const topic = activeTopics[slot.RowID] !== undefined ? activeTopics[slot.RowID] : '';
       return {
         EntryID: entryId,
         TimetableRowID: slot.RowID,
@@ -116,12 +131,16 @@ export function DataEntryView({
     });
 
     onSavePlans(rowsToSave, () => {
-      // On success, promote drafts to persisted
-      setPersistedTopics(activeTopics);
+      // Immediately promote active topics to persisted topics so UI shows all saved
+      setPersistedTopics({ ...activeTopics });
       setDraftTopics({});
       const newSaved = new Set(savedRowIds);
       rowsToSave.forEach((r) => {
-        if (r.Topic.trim()) newSaved.add(r.TimetableRowID);
+        if (r.Topic && r.Topic.trim()) {
+          newSaved.add(r.TimetableRowID);
+        } else {
+          newSaved.delete(r.TimetableRowID);
+        }
       });
       setSavedRowIds(newSaved);
     });
@@ -134,7 +153,7 @@ export function DataEntryView({
 
     const rowsToSave = dayGroup.slots.map((slot) => {
       const entryId = `${slot.RowID}_${selectedWeek}`;
-      const topic = activeTopics[slot.RowID] || '';
+      const topic = activeTopics[slot.RowID] !== undefined ? activeTopics[slot.RowID] : '';
       return {
         EntryID: entryId,
         TimetableRowID: slot.RowID,
@@ -145,11 +164,28 @@ export function DataEntryView({
     });
 
     onSavePlans(rowsToSave, () => {
-      setPersistedTopics((prev) => ({ ...prev, ...draftTopics }));
-      // Clear saved day from drafts
+      setPersistedTopics((prev) => {
+        const next = { ...prev };
+        dayGroup.slots.forEach((s) => {
+          next[s.RowID] = activeTopics[s.RowID] || '';
+        });
+        return next;
+      });
+      // Clear ONLY this day's slots from drafts
       setDraftTopics((prev) => {
         const next = { ...prev };
         dayGroup.slots.forEach((s) => { delete next[s.RowID]; });
+        return next;
+      });
+      setSavedRowIds((prev) => {
+        const next = new Set(prev);
+        rowsToSave.forEach((r) => {
+          if (r.Topic && r.Topic.trim()) {
+            next.add(r.TimetableRowID);
+          } else {
+            next.delete(r.TimetableRowID);
+          }
+        });
         return next;
       });
     });

@@ -1,7 +1,7 @@
 import React from 'react';
 import { detectScript, isRtlScript } from '../utils/scriptDetector';
 
-const PDF_SAFE_LIMIT = 60;
+const PDF_SAFE_LIMIT = 100;
 
 export function PeriodInput({
   slot,

@@ -86,6 +86,12 @@ export function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rows: rowsToSave }),
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Server error (${res.status}): ${res.statusText}`);
+      }
+
       const result = await res.json();
 
       if (result.failed && result.failed.length > 0) {
@@ -94,12 +100,13 @@ export function App() {
           'warning'
         );
       } else {
-        showToast('Weekly teaching plan saved successfully!');
-        if (onSuccess) onSuccess();
+        showToast('All plans saved successfully!');
+        if (onSuccess) onSuccess(result.rows || rowsToSave);
         // Refresh plans from server
         fetchPlans(selectedWeek);
       }
     } catch (err) {
+      console.error(err);
       showToast(`Failed to save plans: ${err.message}`, 'error');
     } finally {
       setIsSaving(false);

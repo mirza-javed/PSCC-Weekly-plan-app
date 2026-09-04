@@ -124,41 +124,56 @@ def load_entries() -> list:
                 entries_map[eid] = r
     return list(entries_map.values())
 
+HEADER = ["EntryID", "TimetableRowID", "WeekStartDate", "Topic", "SubmittedBy", "LastUpdated"]
+
 def upsert_entries(rows_to_save):
     sh = get_spreadsheet()
     ws = sh.worksheet(WS_ENTRIES)
-    existing = _call_with_retry(ws.get_all_records)
-    header = ws.row_values(1)
-    if not header:
-        header = ["EntryID", "TimetableRowID", "WeekStartDate", "Topic", "SubmittedBy", "LastUpdated"]
-
-    id_to_rownum = {rec.get("EntryID"): i + 2 for i, rec in enumerate(existing) if rec.get("EntryID")}
+    
+    # Fast single-column read to map EntryID -> sheet row number (index + 1)
+    entry_ids_col = _call_with_retry(ws.col_values, 1)
+    
+    id_to_rownum = {}
+    for i, eid in enumerate(entry_ids_col):
+        if i > 0 and eid:
+            id_to_rownum[str(eid).strip()] = i + 1
 
     updates, update_ids = [], []
     appends, append_ids = [], []
+    
     for row in rows_to_save:
-        entry_id = row.get("EntryID")
+        entry_id = str(row.get("EntryID", "")).strip()
+        if not entry_id:
+            continue
+        
+        topic = str(row.get("Topic", "")).strip()
+
         if entry_id in id_to_rownum:
             rownum = id_to_rownum[entry_id]
-            values = [str(row.get(col, "")) for col in header]
-            updates.append({"range": f"A{rownum}:{chr(64+len(header))}{rownum}", "values": [values]})
+            values = [str(row.get(col, "")) for col in HEADER]
+            updates.append({"range": f"A{rownum}:F{rownum}", "values": [values]})
             update_ids.append(entry_id)
         else:
-            appends.append([str(row.get(col, "")) for col in header])
-            append_ids.append(entry_id)
+            # Only append new entries if they have an actual topic
+            if topic:
+                appends.append([str(row.get(col, "")) for col in HEADER])
+                append_ids.append(entry_id)
 
     saved, failed = [], []
     if updates:
         try:
             _call_with_retry(ws.batch_update, updates)
             saved += update_ids
-        except gspread.exceptions.APIError:
+        except Exception as e:
+            print(f"Error updating entries: {e}")
             failed += update_ids
+            
     if appends:
         try:
             _call_with_retry(ws.append_rows, appends)
             saved += append_ids
-        except gspread.exceptions.APIError:
+        except Exception as e:
+            print(f"Error appending entries: {e}")
             failed += append_ids
 
     return {"saved": saved, "failed": failed, "total": len(rows_to_save)}

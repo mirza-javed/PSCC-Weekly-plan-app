@@ -30,18 +30,12 @@ export function StickyActionBar({
           {!isLocked ? (
             <button
               type="button"
-              className={`btn btn-primary ${unsavedCount > 0 ? 'pulse' : ''}`}
+              className="btn btn-primary"
               onClick={onSaveAll}
               disabled={isSaving}
             >
               <Save size={18} />
-              {isSaving ? (
-                'Saving Plans...'
-              ) : unsavedCount > 0 ? (
-                `Save All (${unsavedCount} Unsaved)`
-              ) : (
-                '✓ All Plans Saved'
-              )}
+              {isSaving ? 'Saving Plans...' : 'Save All Plan'}
             </button>
           ) : (
             <button type="button" className="btn btn-secondary" disabled>

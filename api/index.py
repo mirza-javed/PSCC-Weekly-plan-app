@@ -76,6 +76,7 @@ def save_plans(payload: SavePlansRequest):
                 r["LastUpdated"] = now_str
                 
         result = upsert_entries(rows_to_save)
+        result["rows"] = rows_to_save
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
